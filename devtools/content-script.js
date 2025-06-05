@@ -9,9 +9,6 @@ function injectBridge( target = document ) {
 	if ( target.__threejs_devtools_bridge_injected ) return;
 	target.__threejs_devtools_bridge_injected = true;
 
-	if ( target.__threejs_devtools_bridge_injected ) return;
-	target.__threejs_devtools_bridge_injected = true;
-
 	const script = document.createElement( 'script' );
 	// Use UMD/IIFE build for Three.js for global THREE
 	const threeUrl = chrome.runtime.getURL( 'panel/build/three.core.js' );
@@ -35,23 +32,16 @@ function injectBridge( target = document ) {
 
 }
 
-// Initial injection
-injectBridge();
-injectIntoIframes();
 
+
+// Inject bridge into all existing iframes
 function injectIntoIframes() {
 
 	document.querySelectorAll( 'iframe' ).forEach( iframe => {
 
 		try {
 
-			if ( iframe.contentDocument ) {
-
-				injectBridge( iframe.contentDocument );
-
-				if ( iframe.contentDocument ) injectBridge( iframe.contentDocument );
-
-
+			if ( iframe.contentDocument ) injectBridge( iframe.contentDocument );
 
 		} catch ( e ) { /* Ignore cross-origin errors */ }
 
@@ -59,36 +49,34 @@ function injectIntoIframes() {
 
 }
 
+// Initial injection
+injectBridge();
+injectIntoIframes();
+
 // Watch for new iframes being added
 new MutationObserver( mutations => {
 
-		mutations.forEach( mutation => {
+	mutations.forEach( mutation => {
 
-			mutation.addedNodes.forEach( node => {
+		mutation.addedNodes.forEach( node => {
 
-				if ( node.tagName === 'IFRAME' ) {
+			if ( node.tagName === 'IFRAME' ) {
 
 				node.addEventListener( 'load', () => {
 
 					try {
 
-						if ( node.contentDocument ) {
-
-							injectBridge( node.contentDocument );
-
-
+						if ( node.contentDocument ) injectBridge( node.contentDocument );
 
 					} catch ( e ) { /* Ignore cross-origin errors */ }
 
-					} );
+				} );
 
-				}
-				}
-
-			} );
-			} );
+			}
 
 		} );
+
+	} );
 
 } ).observe( document.documentElement, { childList: true, subtree: true } );
 
@@ -99,6 +87,12 @@ function isExtensionContextValid() {
 
 		chrome.runtime.getURL( '' );
 		return true;
+
+	} catch ( error ) {
+
+		return false;
+
+	}
 
 }
 
@@ -122,6 +116,7 @@ function handleWindowMessage( event ) {
 	chrome.runtime.sendMessage( messageWithSource );
 
 }
+
 
 // Listener for messages forwarded from the background script (originating from panel)
 // Remove unused parameters 'sender' and 'sendResponse' to fix linter warnings
@@ -147,30 +142,10 @@ const isLightTheme = window.matchMedia( '(prefers-color-scheme: light)' ).matche
 chrome.runtime.sendMessage( { scheme: isLightTheme ? 'light' : 'dark' } );
 window.matchMedia( '(prefers-color-scheme: light)' ).onchange = event => {
 
-		chrome.runtime.sendMessage( { scheme: event.matches ? 'light' : 'dark' } );
-		chrome.runtime.sendMessage( { scheme: event.matches ? 'light' : 'dark' } );
+	chrome.runtime.sendMessage( { scheme: event.matches ? 'light' : 'dark' } );
 
-	};
+};
 
-	window.__threejs_devtools_theme_guard = true;
-
-}
-
-// Handshake: notify background when content script is ready
-try {
-
-	chrome.runtime.sendMessage( { name: 'three-devtools-content-ready' } );
-
-} catch ( e ) {
-
-	console.warn( '[Three.js DevTools] Handshake send failed:', e );
-
-}
-	};
-
-	window.__threejs_devtools_theme_guard = true;
-
-}
 
 // Handshake: notify background when content script is ready
 try {
