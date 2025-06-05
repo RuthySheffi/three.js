@@ -4,8 +4,10 @@
 // console.log( 'Three.js DevTools: Content script loaded at document_readyState:', document.readyState ); // Comment out
 
 // Inject the bridge script into the main document or a target (e.g., iframe)
-// Inject the bridge script into the main document or a target (e.g., iframe)
 function injectBridge( target = document ) {
+
+	if ( target.__threejs_devtools_bridge_injected ) return;
+	target.__threejs_devtools_bridge_injected = true;
 
 	if ( target.__threejs_devtools_bridge_injected ) return;
 	target.__threejs_devtools_bridge_injected = true;
@@ -40,15 +42,16 @@ injectIntoIframes();
 function injectIntoIframes() {
 
 	document.querySelectorAll( 'iframe' ).forEach( iframe => {
-	document.querySelectorAll( 'iframe' ).forEach( iframe => {
 
 		try {
 
 			if ( iframe.contentDocument ) {
 
+				injectBridge( iframe.contentDocument );
+
 				if ( iframe.contentDocument ) injectBridge( iframe.contentDocument );
 
-		} catch ( e ) { /* Ignore cross-origin errors */ }
+
 
 		} catch ( e ) { /* Ignore cross-origin errors */ }
 
@@ -71,24 +74,24 @@ new MutationObserver( mutations => {
 
 						if ( node.contentDocument ) {
 
-						if ( node.contentDocument ) injectBridge( node.contentDocument );
+							injectBridge( node.contentDocument );
 
-					} catch ( e ) { /* Ignore cross-origin errors */ }
+
 
 					} catch ( e ) { /* Ignore cross-origin errors */ }
 
 					} );
 
 				}
+				}
 
+			} );
 			} );
 
 		} );
 
 } ).observe( document.documentElement, { childList: true, subtree: true } );
-} ).observe( document.documentElement, { childList: true, subtree: true } );
 
-// Helper to check if extension context is valid
 // Helper to check if extension context is valid
 function isExtensionContextValid() {
 
@@ -101,16 +104,9 @@ function isExtensionContextValid() {
 
 // Unified message handler for window messages
 function handleWindowMessage( event ) {
-// Unified message handler for window messages
-function handleWindowMessage( event ) {
 
 	// Only accept messages with the correct id
 	if ( ! event.data || event.data.id !== 'three-devtools' ) return;
-	// Only accept messages with the correct id
-	if ( ! event.data || event.data.id !== 'three-devtools' ) return;
-
-	// Determine source: 'main' for window, 'iframe' otherwise
-	const source = event.source === window ? 'main' : 'iframe';
 
 	// Determine source: 'main' for window, 'iframe' otherwise
 	const source = event.source === window ? 'main' : 'iframe';
@@ -127,7 +123,8 @@ function handleWindowMessage( event ) {
 
 }
 
-// Listener for messages from the background script (originating from panel)
+// Listener for messages forwarded from the background script (originating from panel)
+// Remove unused parameters 'sender' and 'sendResponse' to fix linter warnings
 function handleBackgroundMessage( message ) {
 
 	// Forward 'request-state' and 'export-scene' to the bridge
@@ -138,15 +135,11 @@ function handleBackgroundMessage( message ) {
 		window.postMessage( message, '*' );
 
 	}
-		window.postMessage( message, '*' );
-
-	}
 
 }
 
 // Add event listeners
 window.addEventListener( 'message', handleWindowMessage, false );
-
 chrome.runtime.onMessage.addListener( handleBackgroundMessage );
 
 // Icon color scheme
@@ -155,7 +148,24 @@ chrome.runtime.sendMessage( { scheme: isLightTheme ? 'light' : 'dark' } );
 window.matchMedia( '(prefers-color-scheme: light)' ).onchange = event => {
 
 		chrome.runtime.sendMessage( { scheme: event.matches ? 'light' : 'dark' } );
+		chrome.runtime.sendMessage( { scheme: event.matches ? 'light' : 'dark' } );
 
+	};
+
+	window.__threejs_devtools_theme_guard = true;
+
+}
+
+// Handshake: notify background when content script is ready
+try {
+
+	chrome.runtime.sendMessage( { name: 'three-devtools-content-ready' } );
+
+} catch ( e ) {
+
+	console.warn( '[Three.js DevTools] Handshake send failed:', e );
+
+}
 	};
 
 	window.__threejs_devtools_theme_guard = true;
