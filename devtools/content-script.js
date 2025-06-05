@@ -1,11 +1,23 @@
+/* global chrome */
+
 // This script runs in the context of the web page
 // console.log( 'Three.js DevTools: Content script loaded at document_readyState:', document.readyState ); // Comment out
 
-// Function to inject the bridge script
+// Inject the bridge script into the main document or a target (e.g., iframe)
 function injectBridge( target = document ) {
 
+	if ( target.__threejs_devtools_bridge_injected ) return;
+	target.__threejs_devtools_bridge_injected = true;
+
 	const script = document.createElement( 'script' );
+	// Use UMD/IIFE build for Three.js for global THREE
+	const threeUrl = chrome.runtime.getURL( 'panel/build/three.core.js' );
+	// TODO: Use a UMD/IIFE build for GLTFExporter when available
+	const exporterUrl = chrome.runtime.getURL( 'panel/exporters/GLTFExporter.umd.js' );
+
+	// Only bridge.js is loaded from the extension package
 	script.src = chrome.runtime.getURL( 'bridge.js' );
+
 	script.onload = function () {
 
 		this.remove();
@@ -13,27 +25,25 @@ function injectBridge( target = document ) {
 	};
 
 	( target.head || target.documentElement ).appendChild( script );
+	script.setAttribute( 'data-three-url', threeUrl );
+	script.setAttribute( 'data-exporter-url', exporterUrl );
 
 	return script;
 
 }
 
-// Also inject into any existing iframes
+
+
+// Inject bridge into all existing iframes
 function injectIntoIframes() {
 
-	const iframes = document.querySelectorAll( 'iframe' );
-	iframes.forEach( iframe => {
+	document.querySelectorAll( 'iframe' ).forEach( iframe => {
 
 		try {
 
-			injectBridge( iframe.contentDocument );
+			if ( iframe.contentDocument ) injectBridge( iframe.contentDocument );
 
-		} catch ( e ) {
-
-			// Ignore cross-origin iframe errors
-			// console.log( 'DevTools: Could not inject into iframe:', e ); // Comment out
-
-		}
+		} catch ( e ) { /* Ignore cross-origin errors */ }
 
 	} );
 
@@ -44,7 +54,7 @@ injectBridge();
 injectIntoIframes();
 
 // Watch for new iframes being added
-const observer = new MutationObserver( mutations => {
+new MutationObserver( mutations => {
 
 	mutations.forEach( mutation => {
 
@@ -52,19 +62,13 @@ const observer = new MutationObserver( mutations => {
 
 			if ( node.tagName === 'IFRAME' ) {
 
-				// Wait for iframe to load
 				node.addEventListener( 'load', () => {
 
 					try {
 
-						injectBridge( node.contentDocument );
+						if ( node.contentDocument ) injectBridge( node.contentDocument );
 
-					} catch ( e ) {
-
-						// Ignore cross-origin iframe errors
-						// console.log( 'DevTools: Could not inject into iframe:', e ); // Comment out
-
-					}
+					} catch ( e ) { /* Ignore cross-origin errors */ }
 
 				} );
 
@@ -74,19 +78,13 @@ const observer = new MutationObserver( mutations => {
 
 	} );
 
-} );
+} ).observe( document.documentElement, { childList: true, subtree: true } );
 
-observer.observe( document.documentElement, {
-	childList: true,
-	subtree: true
-} );
-
-// Helper function to check if extension context is valid
+// Helper to check if extension context is valid
 function isExtensionContextValid() {
 
 	try {
 
-		// This will throw if context is invalidated
 		chrome.runtime.getURL( '' );
 		return true;
 
@@ -98,24 +96,15 @@ function isExtensionContextValid() {
 
 }
 
-// Handle messages from the main window
-function handleMainWindowMessage( event ) {
+// Unified message handler for window messages
+function handleWindowMessage( event ) {
 
-	// Only accept messages from the same frame
-	if ( event.source !== window ) {
+	// Only accept messages with the correct id
+	if ( ! event.data || event.data.id !== 'three-devtools' ) return;
 
-		return;
+	// Determine source: 'main' for window, 'iframe' otherwise
+	const source = event.source === window ? 'main' : 'iframe';
 
-	}
-
-	const message = event.data;
-	if ( ! message || message.id !== 'three-devtools' ) {
-
-		return;
-
-	}
-
-	// Check extension context before sending message
 	if ( ! isExtensionContextValid() ) {
 
 		console.warn( 'Extension context invalidated, cannot send message' );
@@ -123,97 +112,49 @@ function handleMainWindowMessage( event ) {
 
 	}
 
-	// Add source information
-	const messageWithSource = {
-		...event.data,
-		source: event.source === window ? 'main' : 'iframe'
-	};
-
-	// Forward to background page
+	const messageWithSource = { ...event.data, source };
 	chrome.runtime.sendMessage( messageWithSource );
 
 }
 
-// Handle messages from iframes
-function handleIframeMessage( event ) {
-
-	// Skip messages from main window
-	if ( event.source === window ) {
-
-		return;
-
-	}
-
-	const message = event.data;
-	if ( ! message || message.id !== 'three-devtools' ) {
-
-		return;
-
-	}
-
-	// Check extension context before sending message
-	if ( ! isExtensionContextValid() ) {
-
-		console.warn( 'Extension context invalidated, cannot send message' );
-		return;
-
-	}
-
-	// Add source information
-	const messageWithSource = {
-		...event.data,
-		source: 'iframe'
-	};
-
-	// Forward to background page
-	chrome.runtime.sendMessage( messageWithSource );
-
-}
 
 // Listener for messages forwarded from the background script (originating from panel)
-function handleBackgroundMessage( message, sender, sendResponse ) {
+// Remove unused parameters 'sender' and 'sendResponse' to fix linter warnings
+function handleBackgroundMessage( message ) {
 
-	// Check if the message is one we need to forward to the bridge
-	// Only forward request-state now
-	if ( message.name === 'request-state' ) {
+	// Forward 'request-state' and 'export-scene' to the bridge
+	if ( message.name === 'request-state' || message.name === 'export-scene' ) {
 
-		// console.log( 'Content script: Forwarding message to bridge:', message.name );
-		// Ensure the message has the correct ID before forwarding to the page
+		//console.log('[Three.js DevTools] Content script received and forwarding:', message.name);
 		message.id = 'three-devtools';
-		window.postMessage( message, '*' ); // Forward the modified message to the page
-
-		// Optional: Forward to iframes too, if needed (might cause duplicates if bridge is in iframe)
-		/*
-		const iframes = document.querySelectorAll('iframe');
-		iframes.forEach(iframe => {
-			try {
-				iframe.contentWindow.postMessage(message, '*');
-			} catch (e) {}
-		});
-		*/
+		window.postMessage( message, '*' );
 
 	}
-	// Keep channel open? No, this listener is synchronous for now.
-	// return true;
 
 }
 
 // Add event listeners
-window.addEventListener( 'message', handleMainWindowMessage, false );
-window.addEventListener( 'message', handleIframeMessage, false );
-// chrome.runtime.onMessage.addListener( handleDevtoolsMessage ); // This seems redundant/incorrectly placed in original code
-
-// Use a single listener for messages from the background script
+window.addEventListener( 'message', handleWindowMessage, false );
 chrome.runtime.onMessage.addListener( handleBackgroundMessage );
 
 // Icon color scheme
 const isLightTheme = window.matchMedia( '(prefers-color-scheme: light)' ).matches;
-
 chrome.runtime.sendMessage( { scheme: isLightTheme ? 'light' : 'dark' } );
-
-window.matchMedia( '(prefers-color-scheme: light)' ).onchange = ( event ) => {
+window.matchMedia( '(prefers-color-scheme: light)' ).onchange = event => {
 
 	chrome.runtime.sendMessage( { scheme: event.matches ? 'light' : 'dark' } );
 
 };
+
+
+// Handshake: notify background when content script is ready
+try {
+
+	chrome.runtime.sendMessage( { name: 'three-devtools-content-ready' } );
+
+} catch ( e ) {
+
+	console.warn( '[Three.js DevTools] Handshake send failed:', e );
+
+}
 
